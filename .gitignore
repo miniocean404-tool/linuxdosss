@@ -54,3 +54,5 @@ LDStatusPro/
 
 # Dist folder (exe files are too large for git)
 dist/
+.venv
+uv.lock

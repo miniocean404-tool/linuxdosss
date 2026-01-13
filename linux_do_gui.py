@@ -43,7 +43,7 @@ CATS = [
 ]
 
 CFG = {
-    "proxy": "127.0.0.1:7897",
+    "proxy": "127.0.0.1:7890",
     "base": "https://linux.do",
     "connect": "https://connect.linux.do",
     "like_rate": 0.3,
@@ -247,7 +247,7 @@ class Bot:
                     nextLevel: '',
                     requirements: []
                 };
-                
+
                 // 获取用户名和等级
                 const h1 = document.querySelector('h1');
                 if (h1) {
@@ -258,7 +258,7 @@ class Bot:
                         result.level = match[2];
                     }
                 }
-                
+
                 // 获取下一级要求
                 const h2s = document.querySelectorAll('h2');
                 h2s.forEach(h2 => {
@@ -270,7 +270,7 @@ class Bot:
                         }
                     }
                 });
-                
+
                 // 获取升级要求表格
                 const tables = document.querySelectorAll('table');
                 tables.forEach(table => {
@@ -291,7 +291,7 @@ class Bot:
                         }
                     });
                 });
-                
+
                 return result;
             }
             return getLevelInfo();
