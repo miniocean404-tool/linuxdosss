@@ -9,6 +9,7 @@ Linux.do 论坛刷帖助手 v8.0
 5. 统计报告
 6. 防风控机制（随机间隔）
 7. 升级进度实时追踪
+8. 系统托盘支持
 """
 
 import sys, os, random, time, json, threading
@@ -16,11 +17,52 @@ from datetime import datetime, date
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 
+# 托盘支持
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+    TRAY_SUPPORT = True
+except ImportError:
+    TRAY_SUPPORT = False
+
 try:
     from DrissionPage import ChromiumPage, ChromiumOptions
 except:
     print("pip install DrissionPage")
     sys.exit(1)
+
+
+def get_icon_path():
+    """获取图标路径"""
+    if getattr(sys, 'frozen', False):
+        # 打包后的路径
+        base_path = sys._MEIPASS
+    else:
+        # 开发环境路径
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, 'icon.ico')
+
+
+def create_tray_image(color='#0f3460'):
+    """创建托盘图标图像"""
+    size = 64
+    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # 背景圆形
+    padding = 4
+    draw.ellipse([padding, padding, size - padding, size - padding], fill=color)
+
+    # 内圈
+    inner_padding = 12
+    draw.ellipse([inner_padding, inner_padding, size - inner_padding, size - inner_padding], fill='#1a1a2e')
+
+    # 中心点
+    center = size // 2
+    dot_size = 8
+    draw.ellipse([center - dot_size, center - dot_size, center + dot_size, center + dot_size], fill='#00d9ff')
+
+    return img
 
 # 板块配置
 CATS = [
@@ -634,6 +676,14 @@ class GUI:
         s.rt.minsize(750, 750)  # 设置最小窗口大小
         s.rt.configure(bg="#1a1a2e")
 
+        # 设置窗口图标
+        try:
+            icon_path = get_icon_path()
+            if os.path.exists(icon_path):
+                s.rt.iconbitmap(icon_path)
+        except:
+            pass
+
         # 自定义标题栏
         s.rt.overrideredirect(True)  # 移除默认标题栏
 
@@ -648,10 +698,109 @@ class GUI:
         s._drag_x = 0
         s._drag_y = 0
 
+        # 托盘相关
+        s.tray_icon = None
+        s.tray_thread = None
+        s._running_status = "就绪"
+
         s._ui()
 
         # 窗口居中
         s._center_window()
+
+        # 初始化托盘
+        if TRAY_SUPPORT:
+            s._init_tray()
+
+        # 窗口关闭时的处理
+        s.rt.protocol("WM_DELETE_WINDOW", s._on_close_window)
+
+    def _init_tray(s):
+        """初始化系统托盘"""
+        if not TRAY_SUPPORT:
+            return
+
+        def create_menu():
+            return pystray.Menu(
+                pystray.MenuItem("显示窗口", s._show_window, default=True),
+                pystray.MenuItem("开始运行", s._tray_start),
+                pystray.MenuItem("停止运行", s._tray_stop),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("退出", s._tray_quit)
+            )
+
+        # 创建托盘图标
+        s.tray_icon = pystray.Icon(
+            "LinuxDoHelper",
+            create_tray_image('#0f3460'),
+            "Linux.do 刷帖助手 - 就绪",
+            create_menu()
+        )
+
+        # 在后台线程运行托盘
+        s.tray_thread = threading.Thread(target=s.tray_icon.run, daemon=True)
+        s.tray_thread.start()
+
+    def _update_tray_status(s, status, stats=None):
+        """更新托盘状态"""
+        if not TRAY_SUPPORT or not s.tray_icon:
+            return
+
+        s._running_status = status
+
+        # 根据状态设置不同颜色
+        if status == "运行中":
+            color = '#00ff88'  # 绿色
+        elif status == "已停止" or status == "已完成":
+            color = '#ffaa00'  # 橙色
+        else:
+            color = '#0f3460'  # 默认蓝色
+
+        # 更新图标
+        s.tray_icon.icon = create_tray_image(color)
+
+        # 更新提示文字
+        if stats:
+            tooltip = f"Linux.do 刷帖助手 - {status}\n"
+            tooltip += f"帖子: {stats.get('topic', 0)} | "
+            tooltip += f"点赞: {stats.get('like', 0) + stats.get('like_reply', 0)} | "
+            tooltip += f"回复: {stats.get('reply', 0)}"
+        else:
+            tooltip = f"Linux.do 刷帖助手 - {status}"
+
+        s.tray_icon.title = tooltip
+
+    def _show_window(s, icon=None, item=None):
+        """显示窗口"""
+        s.rt.after(0, s._do_show_window)
+
+    def _do_show_window(s):
+        """在主线程中显示窗口"""
+        s.rt.deiconify()
+        s.rt.overrideredirect(True)
+        s.rt.lift()
+        s.rt.focus_force()
+
+    def _tray_start(s, icon=None, item=None):
+        """从托盘启动"""
+        s.rt.after(0, s._start)
+
+    def _tray_stop(s, icon=None, item=None):
+        """从托盘停止"""
+        s.rt.after(0, s._stop)
+
+    def _tray_quit(s, icon=None, item=None):
+        """从托盘退出"""
+        if s.tray_icon:
+            s.tray_icon.stop()
+        s.rt.after(0, s._close)
+
+    def _on_close_window(s):
+        """窗口关闭按钮处理 - 最小化到托盘"""
+        if TRAY_SUPPORT and s.tray_icon:
+            s.rt.withdraw()  # 隐藏窗口
+        else:
+            s._close()
 
     def _center_window(s):
         """窗口居中显示"""
@@ -677,9 +826,12 @@ class GUI:
 
     def _minimize(s):
         """最小化窗口"""
-        s.rt.overrideredirect(False)
-        s.rt.iconify()
-        s.rt.bind("<Map>", s._on_restore)
+        if TRAY_SUPPORT and s.tray_icon:
+            s.rt.withdraw()  # 最小化到托盘
+        else:
+            s.rt.overrideredirect(False)
+            s.rt.iconify()
+            s.rt.bind("<Map>", s._on_restore)
 
     def _on_restore(s, event):
         """恢复窗口"""
@@ -690,6 +842,11 @@ class GUI:
         """关闭窗口"""
         if s.bot:
             s.bot.stop()
+        if s.tray_icon:
+            try:
+                s.tray_icon.stop()
+            except:
+                pass
         s.rt.destroy()
 
     def _ui(s):
@@ -1161,6 +1318,9 @@ class GUI:
                 except:
                     pass
 
+            # 更新托盘状态（实时显示统计）
+            s._update_tray_status("运行中", stats)
+
         s.rt.after(0, update)
 
     def _lg(s, msg):
@@ -1205,6 +1365,12 @@ class GUI:
         s.stop_btn.config(state=tk.NORMAL)
         s.status.set("运行中...")
 
+        # 更新托盘状态
+        s._update_tray_status("运行中")
+
+        # 重置初始数据
+        s.initial_requirements = []
+
         s.bot = Bot(s.cfg, s.cats, s._lg, s._update_info, s._update_progress)
         s.th = threading.Thread(target=s._run, daemon=True)
         s.th.start()
@@ -1220,10 +1386,17 @@ class GUI:
         s.stop_btn.config(state=tk.DISABLED)
         s.status.set("已完成")
 
+        # 更新托盘状态
+        if s.bot:
+            s._update_tray_status("已完成", s.bot.stats)
+        else:
+            s._update_tray_status("已完成")
+
     def _stop(s):
         if s.bot:
             s.bot.stop()
         s.status.set("正在停止...")
+        s._update_tray_status("已停止")
 
     def run(s):
         s.rt.mainloop()
