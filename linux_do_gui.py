@@ -199,7 +199,7 @@ class Bot:
             if s.cfg["proxy"]:
                 co.set_proxy(s.cfg["proxy"])
             # 设置无头运行
-            co.set_argument("--headless=new")
+            # co.set_argument("--headless=new")
             co.set_argument("--disable-blink-features=AutomationControlled")
             s.pg = ChromiumPage(co)
             s.lg("浏览器就绪")
